@@ -1,0 +1,59 @@
+pipeline {
+ agent any 
+ tools { 
+ maven "maven" 
+ } 
+ stages { 
+	stage('CleanWs') {
+		steps { cleanWs() 
+		} 
+	} 
+	stage('Code') { 
+		steps { 
+		git "anil-ramavath/dockerwebapp.git" 
+		} 
+	} 
+	stage ('CQA') { 
+		steps { 
+			withSonarQubeEnv('sonarqube') { 
+				sh "mvn clean verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=MyProject -Dsonar.projectName='MyProject'" 
+			} 
+		} 
+	} 
+	stage ("Build") {
+		steps { 
+			sh 'mvn clean package' 
+			sh 'cp -r target Docker-app' 
+		} 
+	} 
+	stage ("Arifact") { 
+		steps { 
+			nexusArtifactUploader artifacts: [[artifactId: 'vprofile', classifier: '', file: 'target/vprofile-v2.war', type: 'war']], credentialsId: 'nexus', groupId: 'com.visualpathit', nexusUrl: '10.50.2.4:8081', nexusVersion: 'nexus3', protocol: 'http', repository: 'myrepo', version: 'v2' 
+		} 
+	} 
+	stage ("Docker Build") { 
+		steps { 
+			sh 'docker build -t anilcloudinfra/dockerwebapp:app Docker-app' 
+			sh 'docker build -t anilcloudinfra/dockerwebapp:db Docker-db' 
+		} 
+	} 
+	stage ('Trivy') { 
+		steps { 
+			sh 'trivy image anilcloudinfra/dockerwebapp:app' 
+			sh 'trivy image anilcloudinfra/dockerwebapp:db' 
+		} 
+	} stage ("Push") { 
+		steps { 
+			withDockerRegistry(credentialsId: 'docker') { 
+				sh 'docker push anilcloudinfra/dockerwebapp:app' 
+				sh 'docker push anilcloudinfra/dockerwebapp:db' 
+			} 
+		} 
+	} 
+	stage ("Stack") { 
+		steps { 
+			sh 'docker stack deploy myapp --compose-file=compose.yml' 
+			} 
+		} 
+	} 
+}
